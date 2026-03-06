@@ -60,11 +60,18 @@ logger = logging.getLogger("battery-monitor")
 def setup_logging(verbose: bool = False):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     level = logging.DEBUG if verbose else logging.INFO
-    fmt = "%(asctime)s [%(levelname)s] %(message)s"
-    logging.basicConfig(level=level, format=fmt, handlers=[
-        logging.FileHandler(LOG_PATH),
-        logging.StreamHandler(),
-    ])
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    if not logger.handlers:
+        fh = logging.FileHandler(LOG_PATH)
+        fh.setFormatter(fmt)
+        sh = logging.StreamHandler()
+        sh.setFormatter(fmt)
+        logger.addHandler(fh)
+        logger.addHandler(sh)
+
+    logger.setLevel(level)
+    logger.propagate = False
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +135,8 @@ def get_db() -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 
+SQLITE_INT_MAX = 2**63 - 1
+
 def _parse_ioreg_value(raw: str):
     """Extract the value portion after '=' from an ioreg line."""
     val = raw.split("=", 1)[-1].strip()
@@ -136,7 +145,12 @@ def _parse_ioreg_value(raw: str):
     if val.lower() in ("no", "false"):
         return False
     try:
-        return int(val)
+        n = int(val)
+        # macOS ioreg reports some signed fields (e.g. Amperage) as unsigned
+        # 64-bit ints when negative. Convert back to signed.
+        if n > SQLITE_INT_MAX:
+            n -= 2**64
+        return n
     except ValueError:
         return val
 
